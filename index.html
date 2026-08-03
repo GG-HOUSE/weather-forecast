@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>東京地方の天気予報</title>
+<title>八王子市の天気予報</title>
 <style>
     :root {
         color-scheme: light dark;
@@ -18,6 +18,12 @@
     h1 {
         text-align: center;
         font-size: 1.4rem;
+    }
+    h3 {
+        text-align: center;
+        font-size: 1rem;
+        color: #555;
+        margin: 28px 0 8px;
     }
     .updated {
         text-align: center;
@@ -46,6 +52,39 @@
         font-size: 0.95rem;
         margin: 2px 0;
     }
+    .warnings {
+        max-width: 500px;
+        margin: 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: center;
+    }
+    .pill {
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-size: 0.9rem;
+        font-weight: bold;
+        color: white;
+    }
+    .pill.special { background: #8e24aa; }
+    .pill.warning { background: #d32f2f; }
+    .pill.advisory { background: #f9a825; color: #222; }
+    .no-warning {
+        text-align: center;
+        color: #2e7d32;
+        font-size: 0.9rem;
+    }
+    .map-card {
+        text-align: center;
+        max-width: 500px;
+        margin: 0 auto;
+    }
+    .map-card img {
+        max-width: 100%;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
     .footer {
         text-align: center;
         color: #999;
@@ -57,35 +96,58 @@
     }
     @media (prefers-color-scheme: dark) {
         body { background: #15181d; color: #e6e6e6; }
+        h3 { color: #aaa; }
         .card { background: #22262c; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
         .detail { color: #aaa; }
+        .pill.advisory { color: #222; }
     }
 </style>
 </head>
 <body>
-<h1>東京地方の天気予報</h1>
+<h1>八王子市の天気予報</h1>
 <p class="updated" id="updated">読み込み中...</p>
+
 <div id="cards"></div>
+
+<h3>警報・注意報</h3>
+<div class="warnings" id="warnings"><p class="no-warning">確認中...</p></div>
+
+<h3>天気図（気象庁発表）</h3>
+<div class="map-card" id="mapCard"><p style="text-align:center;">読み込み中...</p></div>
+
 <p class="footer">データ提供: 気象庁</p>
 
 <script>
-const AREA_CODE = "130000"; // 東京地方
-const API_URL = `https://www.jma.go.jp/bosai/forecast/data/forecast/${AREA_CODE}.json`;
+const OFFICE_CODE = "130000";   // 東京都
+const FORECAST_AREA_CODE = "130010"; // 東京地方（八王子市を含む）
+const TEMP_AREA_CODE = "44132"; // 東京（大手町）
+const HACHIOJI_CLASS20 = "1320100"; // 八王子市（警報・注意報用）
+
+// SKILL.mdで実データ照合済みのコード→名称対応。未知のコードはそのままコード表示する。
+const WARNING_CODE_MAP = {
+    "03": { name: "大雨警報", level: "warning" },
+    "07": { name: "波浪警報", level: "warning" },
+    "14": { name: "雷注意報", level: "advisory" },
+    "15": { name: "強風注意報", level: "advisory" },
+    "16": { name: "波浪注意報", level: "advisory" },
+    "20": { name: "濃霧注意報", level: "advisory" },
+    "29": { name: "土砂災害警戒情報", level: "danger" }
+};
 
 async function loadForecast() {
     const cardsEl = document.getElementById("cards");
     const updatedEl = document.getElementById("updated");
     try {
-        const res = await fetch(API_URL, { cache: "no-store" });
+        const res = await fetch(`https://www.jma.go.jp/bosai/forecast/data/forecast/${OFFICE_CODE}.json`, { cache: "no-store" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
 
         const shortTerm = data[0];
         const weatherSeries = shortTerm.timeSeries[0];
         const popSeries = shortTerm.timeSeries[1];
-        const areaIndex = weatherSeries.areas.findIndex(a => a.area.code === "130010"); // 東京地方
+        const areaIndex = weatherSeries.areas.findIndex(a => a.area.code === FORECAST_AREA_CODE);
         const weatherArea = weatherSeries.areas[areaIndex >= 0 ? areaIndex : 0];
-        const popAreaIndex = popSeries.areas.findIndex(a => a.area.code === "130010");
+        const popAreaIndex = popSeries.areas.findIndex(a => a.area.code === FORECAST_AREA_CODE);
         const popArea = popSeries.areas[popAreaIndex >= 0 ? popAreaIndex : 0];
 
         let tempsByDate = {};
@@ -93,7 +155,7 @@ async function loadForecast() {
         if (weekly) {
             const tempSeries = weekly.timeSeries.find(ts => ts.areas[0].tempsMin || ts.areas[0].tempsMax);
             if (tempSeries) {
-                const tempArea = tempSeries.areas.find(a => a.area.code === "44132") || tempSeries.areas[0];
+                const tempArea = tempSeries.areas.find(a => a.area.code === TEMP_AREA_CODE) || tempSeries.areas[0];
                 tempSeries.timeDefines.forEach((d, i) => {
                     const date = d.slice(0, 10);
                     tempsByDate[date] = {
@@ -139,7 +201,76 @@ async function loadForecast() {
     }
 }
 
+async function loadWarnings() {
+    const warningsEl = document.getElementById("warnings");
+    try {
+        const res = await fetch(`https://www.jma.go.jp/bosai/warning/data/r8/${OFFICE_CODE}.json`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const events = await res.json();
+
+        // コードごとに最新（reportDatetimeが最大）のステータスだけを残す
+        const latestByCode = {};
+        for (const event of events) {
+            const items = (event.warning && event.warning.class20Items) || [];
+            const area = items.find(a => a.areaCode === HACHIOJI_CLASS20);
+            if (!area) continue;
+            for (const kind of area.kinds) {
+                if (!kind.code) continue; // コードなし = 発表なし
+                const prev = latestByCode[kind.code];
+                if (!prev || new Date(event.reportDatetime) > new Date(prev.reportDatetime)) {
+                    latestByCode[kind.code] = { status: kind.status, reportDatetime: event.reportDatetime };
+                }
+            }
+        }
+
+        const active = Object.entries(latestByCode).filter(
+            ([, v]) => v.status !== "解除" && !v.status.includes("なし")
+        );
+
+        if (active.length === 0) {
+            warningsEl.innerHTML = `<p class="no-warning">現在、発表中の警報・注意報はありません</p>`;
+            return;
+        }
+
+        warningsEl.innerHTML = "";
+        active.forEach(([code, v]) => {
+            const info = WARNING_CODE_MAP[code] || { name: `警報コード${code}`, level: "advisory" };
+            const pill = document.createElement("span");
+            pill.className = "pill " + info.level;
+            pill.textContent = info.name;
+            warningsEl.appendChild(pill);
+        });
+    } catch (err) {
+        warningsEl.innerHTML = `<p style="text-align:center;color:#c33;">警報情報の取得に失敗しました</p>`;
+    }
+}
+
+async function loadWeatherMap() {
+    const mapCardEl = document.getElementById("mapCard");
+    try {
+        const res = await fetch("https://www.jma.go.jp/bosai/weather_map/data/list.json", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const list = await res.json();
+        const files = list.near.now;
+        const latestFile = files[files.length - 1];
+        const imgUrl = `https://www.jma.go.jp/bosai/weather_map/data/png/${latestFile}`;
+
+        // ファイル名先頭14桁 = 発表時刻（例: 20260803080030）
+        const ts = latestFile.slice(0, 14);
+        const label = `${ts.slice(0,4)}-${ts.slice(4,6)}-${ts.slice(6,8)} ${ts.slice(8,10)}:${ts.slice(10,12)}`;
+
+        mapCardEl.innerHTML = `
+            <img src="${imgUrl}" alt="地上天気図">
+            <p class="detail">発表: ${label}</p>
+        `;
+    } catch (err) {
+        mapCardEl.innerHTML = `<p style="text-align:center;color:#c33;">天気図の取得に失敗しました</p>`;
+    }
+}
+
 loadForecast();
+loadWarnings();
+loadWeatherMap();
 </script>
 </body>
 </html>
