@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>東京地方の天気予報</title>
+<style>
+    :root {
+        color-scheme: light dark;
+    }
+    body {
+        font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+        background: #f0f4f8;
+        color: #222;
+        padding: 20px;
+        margin: 0;
+    }
+    h1 {
+        text-align: center;
+        font-size: 1.4rem;
+    }
+    .updated {
+        text-align: center;
+        color: #666;
+        font-size: 0.85rem;
+        margin-bottom: 20px;
+    }
+    .card {
+        background: white;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin: 12px auto;
+        max-width: 500px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .card h2 {
+        margin: 0 0 8px;
+        font-size: 1.1rem;
+    }
+    .weather {
+        font-size: 1.1rem;
+        margin: 4px 0;
+    }
+    .detail {
+        color: #555;
+        font-size: 0.95rem;
+        margin: 2px 0;
+    }
+    .footer {
+        text-align: center;
+        color: #999;
+        font-size: 0.8rem;
+        margin-top: 24px;
+    }
+    .footer a {
+        color: #777;
+    }
+    @media (prefers-color-scheme: dark) {
+        body { background: #15181d; color: #e6e6e6; }
+        .card { background: #22262c; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+        .detail { color: #aaa; }
+    }
+</style>
+</head>
+<body>
+<h1>東京地方の天気予報</h1>
+<p class="updated" id="updated">読み込み中...</p>
+<div id="cards"></div>
+<p class="footer">データ提供: 気象庁</p>
+
+<script>
+const AREA_CODE = "130000"; // 東京地方
+const API_URL = `https://www.jma.go.jp/bosai/forecast/data/forecast/${AREA_CODE}.json`;
+
+async function loadForecast() {
+    const cardsEl = document.getElementById("cards");
+    const updatedEl = document.getElementById("updated");
+    try {
+        const res = await fetch(API_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        const shortTerm = data[0];
+        const weatherSeries = shortTerm.timeSeries[0];
+        const popSeries = shortTerm.timeSeries[1];
+        const areaIndex = weatherSeries.areas.findIndex(a => a.area.code === "130010"); // 東京地方
+        const weatherArea = weatherSeries.areas[areaIndex >= 0 ? areaIndex : 0];
+        const popAreaIndex = popSeries.areas.findIndex(a => a.area.code === "130010");
+        const popArea = popSeries.areas[popAreaIndex >= 0 ? popAreaIndex : 0];
+
+        let tempsByDate = {};
+        const weekly = data[1];
+        if (weekly) {
+            const tempSeries = weekly.timeSeries.find(ts => ts.areas[0].tempsMin || ts.areas[0].tempsMax);
+            if (tempSeries) {
+                const tempArea = tempSeries.areas.find(a => a.area.code === "44132") || tempSeries.areas[0];
+                tempSeries.timeDefines.forEach((d, i) => {
+                    const date = d.slice(0, 10);
+                    tempsByDate[date] = {
+                        min: tempArea.tempsMin ? tempArea.tempsMin[i] : "",
+                        max: tempArea.tempsMax ? tempArea.tempsMax[i] : ""
+                    };
+                });
+            }
+        }
+
+        const reportDate = new Date(data[0].reportDatetime);
+        updatedEl.textContent = "更新: " + reportDate.toLocaleString("ja-JP");
+
+        cardsEl.innerHTML = "";
+        weatherSeries.timeDefines.forEach((dateStr, i) => {
+            const date = dateStr.slice(0, 10);
+            const weather = weatherArea.weathers[i].replace(/\s+/g, " ").trim();
+
+            let pop = "-";
+            const popIdx = popSeries.timeDefines.findIndex(d => d.slice(0, 10) === date);
+            if (popIdx !== -1 && popArea.pops) {
+                pop = popArea.pops[popIdx] + "%";
+            }
+
+            const temp = tempsByDate[date];
+            const tempText = temp && (temp.min || temp.max)
+                ? `最低 ${temp.min || "-"}度 / 最高 ${temp.max || "-"}度`
+                : "-";
+
+            const card = document.createElement("div");
+            card.className = "card";
+            card.innerHTML = `
+                <h2>${date}</h2>
+                <p class="weather">${weather}</p>
+                <p class="detail">降水確率: ${pop}</p>
+                <p class="detail">気温: ${tempText}</p>
+            `;
+            cardsEl.appendChild(card);
+        });
+    } catch (err) {
+        updatedEl.textContent = "天気データの取得に失敗しました";
+        cardsEl.innerHTML = `<p style="text-align:center;color:#c33;">${err.message}</p>`;
+    }
+}
+
+loadForecast();
+</script>
+</body>
+</html>
