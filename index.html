@@ -43,6 +43,11 @@
         margin: 0 0 8px;
         font-size: 1.1rem;
     }
+    .icons {
+        font-size: 1.8rem;
+        margin: 4px 0;
+        line-height: 1.2;
+    }
     .weather {
         font-size: 1.1rem;
         margin: 4px 0;
@@ -134,6 +139,25 @@ const WARNING_CODE_MAP = {
     "29": { name: "土砂災害警戒情報", level: "danger" }
 };
 
+// 天気文の中に出てくる言葉を順番に拾ってアイコンに変換する
+const WEATHER_ICON_PATTERNS = [
+    { pattern: /晴/, icon: "☀️" },
+    { pattern: /雷/, icon: "⚡" },
+    { pattern: /雪/, icon: "❄️" },
+    { pattern: /雨/, icon: "☔" },
+    { pattern: /霧/, icon: "🌫️" },
+    { pattern: /曇|くもり/, icon: "☁️" }
+];
+
+function getWeatherIcons(text) {
+    // 出現位置順に並べたいので、まず各パターンの最初のマッチ位置を調べる
+    const found = WEATHER_ICON_PATTERNS
+        .map(({ pattern, icon }) => ({ icon, index: text.search(pattern) }))
+        .filter(({ index }) => index !== -1)
+        .sort((a, b) => a.index - b.index);
+    return found.length ? found.map(f => f.icon).join(" ") : "🌡️";
+}
+
 async function loadForecast() {
     const cardsEl = document.getElementById("cards");
     const updatedEl = document.getElementById("updated");
@@ -189,6 +213,7 @@ async function loadForecast() {
             card.className = "card";
             card.innerHTML = `
                 <h2>${date}</h2>
+                <p class="icons">${getWeatherIcons(weather)}</p>
                 <p class="weather">${weather}</p>
                 <p class="detail">降水確率: ${pop}</p>
                 <p class="detail">気温: ${tempText}</p>
