@@ -107,8 +107,10 @@
     }
     .iss-land { fill: #cddceb; stroke: #7f9db5; stroke-width: 1.5; }
     .iss-track { fill: none; stroke: #e6510f; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
-    .iss-track-context { fill: none; stroke: #e6510f; stroke-width: 2; stroke-dasharray: 4 4; stroke-linecap: round; opacity: 0.5; }
     .iss-marker { font-size: 26px; text-anchor: middle; dominant-baseline: middle; }
+    .iss-city { fill: #7f9db5; }
+    .iss-city-ref { fill: #e6510f; stroke: white; stroke-width: 1.5; }
+    .iss-city-label { font-size: 13px; text-anchor: middle; fill: #444; font-weight: bold; }
     @media (prefers-color-scheme: dark) {
         body { background: #15181d; color: #e6e6e6; }
         h3 { color: #aaa; }
@@ -116,11 +118,14 @@
         .detail { color: #aaa; }
         .pill.advisory { color: #222; }
         .iss-land { fill: #2c3b4a; stroke: #5c7d95; }
+        .iss-city-label { fill: #ddd; }
+        .iss-city-ref { stroke: #22262c; }
     }
 </style>
 </head>
 <body>
 <h1>天狗がいる八王子の天気予報</h1>
+<p style="text-align:center; margin: -8px 0 16px;"><a href="earth.html" style="color:#3b6fa0; text-decoration:none; font-size:0.9rem;">🌍 Earth Alive - 今の地球を眺める &rarr;</a></p>
 <p class="updated" id="updated">読み込み中...</p>
 
 <div id="cards"></div>
@@ -308,12 +313,31 @@ async function loadWeatherMap() {
     }
 }
 
-// 日本列島のシンプルな輪郭（Natural Earth 110m, パブリックドメイン）を
+// 日本列島の輪郭（Natural Earth 50m, パブリックドメインを簡略化）を
 // 経度127-147度・緯度29-46.5度の範囲でSVG座標(520x620)に投影済みのパスデータ
 const JAPAN_MAP = { lonMin: 127, lonMax: 147, latMin: 29, latMax: 46.5, w: 520, h: 620 };
-const JAPAN_PATH = "M387,259.31L362.95,294.98L363.39,331.54L353.59,359.81L358.13,377.57L344.59,402.54L311.36,419.21L265.66,421.38L228.62,461.82L211.15,448.2L210.07,421.72L164.85,429.54L134.08,446.23L103.64,446.9L130,472.97L112.65,533.19L95.84,548.09L83.26,534.33L89.64,502.4L73.18,492.09L62.62,467.8L87.2,456.88L100.84,434.61L126.99,416.3L146.06,392.07L197.82,381.51L225.62,388.75L252.82,325.77L270.16,342.69L308.3,307.25L323.09,293.49L339.42,250.17L334.97,210.33L345.95,187.95L373.59,181.45L387.77,230.58L387,259.31Z M457.95,89.96L476.34,74.94L482.12,114.71L443.55,124.41L420.78,159.6L379.9,135.38L365.75,174.15L336.83,174.68L333.26,139.46L346.11,112.19L373.89,110.22L381.47,61.22L389.16,33.6L419.71,70.49L439.66,82.4L457.95,89.96Z M139.65,461.86L154.03,440.72L168.82,444.82L179.51,429.93L198.6,437.57L201.93,449.72L187.29,471.16L176.62,459.79L163.29,468.03L156.39,488.75L139.44,478.66L139.65,461.86Z";
-// 通過判定用: 上と同じ島の輪郭を[経度,緯度]の配列で持つ（陸地の上にいるかどうかの判定に使う）
-const JAPAN_RINGS = [[[141.885,39.181],[140.959,38.174],[140.976,37.142],[140.6,36.344],[140.774,35.843],[140.253,35.138],[138.976,34.668],[137.218,34.606],[135.793,33.465],[135.121,33.849],[135.079,34.597],[133.34,34.376],[132.157,33.905],[130.986,33.886],[132,33.15],[131.333,31.45],[130.686,31.03],[130.202,31.418],[130.448,32.319],[129.815,32.61],[129.408,33.296],[130.354,33.604],[130.878,34.233],[131.884,34.75],[132.618,35.433],[134.608,35.732],[135.678,35.527],[136.724,37.305],[137.391,36.827],[138.858,37.827],[139.426,38.216],[140.055,39.439],[139.883,40.563],[140.306,41.195],[141.369,41.379],[141.914,39.992],[141.885,39.181]],[[144.613,43.961],[145.321,44.385],[145.543,43.262],[144.06,42.988],[143.184,41.995],[141.611,42.679],[141.067,41.585],[139.955,41.57],[139.818,42.564],[140.312,43.333],[141.381,43.389],[141.672,44.772],[141.968,45.551],[143.143,44.51],[143.91,44.174],[144.613,43.961]],[[132.371,33.464],[132.924,34.06],[133.493,33.945],[133.904,34.365],[134.638,34.149],[134.766,33.806],[134.203,33.201],[133.793,33.522],[133.28,33.29],[133.015,32.705],[132.363,32.989],[132.371,33.464]]];
+const JAPAN_PATH = "M437.4,84.4L460.6,91.1L477.6,77L471.6,100.5L476.9,113.3L489.7,110.3L465.9,124L441.2,128.2L427.2,144.6L422.2,159.4L386.1,138.9L363.6,147.3L350.5,139.6L346.5,149L367.9,166.3L355.2,165.9L345,178.7L339,178.1L340.8,162.5L333.7,149.6L334.4,138.8L349.2,125.6L348.2,113.3L367.6,117.6L373.7,114.1L383.8,71.5L379.2,47.6L381.4,38.9L388.4,35.1L413,64.8L437.4,84.4Z M370,181.6L375.8,180.5L375.2,204.7L384.7,220L389.4,250.5L376.1,286.8L366.8,289.2L363,295.9L364.1,332.5L352.9,363.8L360.7,381.7L349.9,389.4L347.2,401L333.9,410.4L333.5,396.9L340.5,386.7L333.7,384.1L328.9,392.9L329.6,402.1L318.5,397.6L314.2,413.1L307.8,420.9L306.9,408.3L309.5,406.5L304.7,403L290.9,421.7L261.6,422.2L267.2,415.5L259,413.3L256.6,416.9L254.9,405.7L247.9,418.8L256.9,427.5L256.2,431.4L242.6,436.6L231.8,458.4L226.1,461L219.8,458.7L211.3,442.6L210.6,432.7L218.8,421L201.2,415.8L159.7,432.2L138.1,431.3L133.8,448.6L123.3,441L101.9,443.7L104.1,428.9L113.2,428.2L154,389.3L181.5,389.5L212.5,381L216.5,388.8L231.5,385.9L236.5,380.2L235.7,367.9L252.1,345.7L255.9,323L268.4,318.1L257.4,332.4L260.4,342.3L266.4,345.3L294.3,328.8L309,306.7L321.5,297.6L332.9,269.9L339.7,243.6L337.9,235.4L331.3,233.1L338.3,221.1L337.1,206.4L345.3,200.3L348,186.7L354.3,187.9L357.5,200.9L367.1,199L370.3,187.6L358.8,189.9L358.9,185.9L362.4,176.9L370,181.6Z M191.3,433.8L198.6,434.8L201.2,449.2L191.8,456.7L186.7,469.5L172.4,460.2L163.4,465.5L150.9,487.1L142.9,481.2L140.7,463.1L130.9,466.2L146.7,453.8L154.3,439.5L161,445.2L171.1,442.3L171.7,434.2L180.6,430.5L191.3,433.8Z M108.6,456.9L122.1,456.9L118,468.6L127.3,469.3L130.1,482.5L121.2,497.2L112.8,534.8L105.8,533.7L106.5,540.1L95.8,548.6L98.2,524.1L92.5,529.2L93.3,542.8L81.8,534.7L86.4,527.9L83,510.5L94.7,491.8L90.9,490.4L92.2,484.2L84.2,472L81.3,474.6L82.6,483.6L86.5,483.5L86.8,488.8L79.4,486.4L72,493.5L69.7,476.2L77.8,483.5L67.1,469.9L96.6,445.4L102.8,447.4L108.6,456.9Z";
+
+// ISSが日本上空を通る際に「直下に一番近い都市」を基準観測地点として選ぶための候補リスト
+const CITIES = [
+    { name: "札幌", lat: 43.0642, lon: 141.3469 },
+    { name: "仙台", lat: 38.2682, lon: 140.8694 },
+    { name: "新潟", lat: 37.9026, lon: 139.0232 },
+    { name: "金沢", lat: 36.5613, lon: 136.6562 },
+    { name: "八王子", lat: 35.6564, lon: 139.3390 },
+    { name: "名古屋", lat: 35.1815, lon: 136.9066 },
+    { name: "大阪", lat: 34.6937, lon: 135.5023 },
+    { name: "広島", lat: 34.3853, lon: 132.4553 },
+    { name: "高松", lat: 34.3401, lon: 134.0434 },
+    { name: "福岡", lat: 33.5904, lon: 130.4017 },
+    { name: "鹿児島", lat: 31.5966, lon: 130.5571 },
+];
+
+const DEG2RAD = Math.PI / 180, RAD2DEG = 180 / Math.PI;
+const AU_KM = 149597870.7;
+const EARTH_RADIUS_KM = 6378.137;
+const MIN_MAX_ELEVATION_DEG = 10; // 最高高度がこれ未満の、地平線をかすめるだけの通過は対象外にする
+const DARK_SKY_SUN_ELEVATION_DEG = -6; // 市民薄明（これより太陽が低ければ空が暗いとみなす）
 
 function projectLatLon(lat, lon) {
     const x = ((lon - JAPAN_MAP.lonMin) / (JAPAN_MAP.lonMax - JAPAN_MAP.lonMin)) * JAPAN_MAP.w;
@@ -321,34 +345,59 @@ function projectLatLon(lat, lon) {
     return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
 }
 
-// レイキャスティング法で「その経度緯度が陸地の輪郭の内側にあるか」を判定する
-function pointInRing(lon, lat, ring) {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        const xi = ring[i][0], yi = ring[i][1];
-        const xj = ring[j][0], yj = ring[j][1];
-        const intersect = ((yi > lat) !== (yj > lat)) &&
-            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-        if (intersect) inside = !inside;
+function nearestCity(lat, lon) {
+    let best = null, bestDist = Infinity;
+    for (const c of CITIES) {
+        const d = (c.lat - lat) ** 2 + (c.lon - lon) ** 2;
+        if (d < bestDist) { bestDist = d; best = c; }
     }
-    return inside;
+    return best;
 }
 
-function isOverJapan(lat, lon) {
-    return JAPAN_RINGS.some(ring => pointInRing(lon, lat, ring));
+// 低精度太陽位置式（Astronomical Almanacの簡易式、精度は角度で約0.01度）
+function sunPositionEci(date) {
+    const jd = date.getTime() / 86400000 + 2440587.5;
+    const n = jd - 2451545.0;
+    const L = ((280.460 + 0.9856474 * n) % 360 + 360) % 360;
+    const g = (((357.528 + 0.9856003 * n) % 360 + 360) % 360) * DEG2RAD;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * DEG2RAD;
+    const epsilon = (23.439 - 0.0000004 * n) * DEG2RAD;
+    return {
+        x: Math.cos(lambda) * AU_KM,
+        y: Math.cos(epsilon) * Math.sin(lambda) * AU_KM,
+        z: Math.sin(epsilon) * Math.sin(lambda) * AU_KM
+    };
 }
 
-function isWithinMap(lat, lon) {
-    return lat >= JAPAN_MAP.latMin && lat <= JAPAN_MAP.latMax &&
-           lon >= JAPAN_MAP.lonMin && lon <= JAPAN_MAP.lonMax;
+// 円柱影モデルで、ISSが地球の影に入っていないか（太陽に照らされているか）を判定する
+function isSunlit(satEci, sunEci) {
+    const dot = satEci.x * sunEci.x + satEci.y * sunEci.y + satEci.z * sunEci.z;
+    if (dot > 0) return true;
+    const sunDist = Math.hypot(sunEci.x, sunEci.y, sunEci.z);
+    const satDist = Math.hypot(satEci.x, satEci.y, satEci.z);
+    const cosTheta = dot / (satDist * sunDist);
+    const sinTheta = Math.sqrt(Math.max(0, 1 - cosTheta * cosTheta));
+    return satDist * sinTheta > EARTH_RADIUS_KM;
 }
 
-function getGeodetic(satrec, t) {
-    const posVel = satellite.propagate(satrec, t);
-    if (!posVel.position) return null;
-    const gmst = satellite.gstime(t);
-    const geo = satellite.eciToGeodetic(posVel.position, gmst);
-    return { lat: satellite.degreesLat(geo.latitude), lon: satellite.degreesLong(geo.longitude) };
+const COMPASS_JA = ["北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東", "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西"];
+function azimuthToCompass(azimuthRad) {
+    const deg = ((azimuthRad * RAD2DEG) % 360 + 360) % 360;
+    return COMPASS_JA[Math.round(deg / 22.5) % 16];
+}
+
+// ある時刻・ある都市から見たISSと太陽の方位角・高度、および太陽照射の有無をまとめて計算する
+function computeLook(satrecPos, gmst, city, sunEci) {
+    const satEcf = satellite.eciToEcf(satrecPos, gmst);
+    const sunEcf = satellite.eciToEcf(sunEci, gmst);
+    const observerGd = { latitude: city.lat * DEG2RAD, longitude: city.lon * DEG2RAD, height: 0.1 };
+    const satLook = satellite.ecfToLookAngles(observerGd, satEcf);
+    const sunLook = satellite.ecfToLookAngles(observerGd, sunEcf);
+    return {
+        elevationDeg: satLook.elevation * RAD2DEG,
+        azimuthRad: satLook.azimuth,
+        sunElevationDeg: sunLook.elevation * RAD2DEG
+    };
 }
 
 function formatJst(date) {
@@ -358,31 +407,30 @@ function formatJst(date) {
     });
 }
 
-function renderIssPass(track, leadTrack, trailTrack, entryTime, exitTime, stepSec) {
+function renderIssPass(pass) {
     const issCardEl = document.getElementById("issCard");
     const toPath = pts => "M" + pts.map(([lat, lon]) => projectLatLon(lat, lon).join(",")).join(" L");
-    const trackPath = toPath(track);
-    const marker = projectLatLon(...track[Math.floor(track.length / 2)]);
+    const trackPath = toPath(pass.track);
+    const cityMarker = projectLatLon(pass.city.lat, pass.city.lon);
+    const issMarker = projectLatLon(...pass.track[Math.floor(pass.track.length / 2)]);
 
-    const contextPaths = [leadTrack, trailTrack]
-        .filter(seg => seg.length > 1)
-        .map(seg => `<path class="iss-track-context" d="${toPath(seg)}"></path>`)
-        .join("");
-
-    // 通過区間はstepSec間隔のサンプリングなので、実際の滞在時間はサンプル数×stepSec程度とみなす
-    const durationSec = Math.max(track.length * stepSec, Math.round((exitTime - entryTime) / 1000));
-    const timeLines = durationSec < 90
-        ? `<p class="detail">日本上空を通過: ${formatJst(entryTime)} ごろ（約${durationSec}秒間）</p>`
-        : `<p class="detail">日本に差し掛かる: ${formatJst(entryTime)} ごろ</p>
-           <p class="detail">通過し終わる: ${formatJst(exitTime)} ごろ</p>`;
+    const cityDots = CITIES.map(c => {
+        const [x, y] = projectLatLon(c.lat, c.lon);
+        const isRef = c === pass.city;
+        return `<circle class="${isRef ? "iss-city-ref" : "iss-city"}" cx="${x}" cy="${y}" r="${isRef ? 5 : 2.5}"></circle>`;
+    }).join("");
 
     issCardEl.innerHTML = `
-        ${timeLines}
+        <p class="detail">基準都市: ${pass.city.name}の空</p>
+        <p class="detail">${formatJst(pass.start)} ごろ、${azimuthToCompass(pass.startAz)}の空から見え始め</p>
+        <p class="detail">${formatJst(pass.end)} ごろ、${azimuthToCompass(pass.endAz)}の空に消えていきます</p>
+        <p class="detail">（最高高度 約${Math.round(pass.maxElevation)}度、約${Math.round((pass.end - pass.start) / 1000)}秒間）</p>
         <svg viewBox="0 0 ${JAPAN_MAP.w} ${JAPAN_MAP.h}">
             <path class="iss-land" d="${JAPAN_PATH}"></path>
-            ${contextPaths}
+            ${cityDots}
             <path class="iss-track" d="${trackPath}"></path>
-            <text class="iss-marker" x="${marker[0]}" y="${marker[1]}">🛰️</text>
+            <text class="iss-marker" x="${issMarker[0]}" y="${issMarker[1]}">🛰️</text>
+            <text class="iss-city-label" x="${cityMarker[0]}" y="${cityMarker[1] - 9}">${pass.city.name}</text>
         </svg>
     `;
 }
@@ -395,46 +443,55 @@ async function loadIssPass() {
         const lines = (await res.text()).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         const satrec = satellite.twoline2satrec(lines[1], lines[2]);
 
-        const stepSec = 20;
-        const maxSteps = Math.floor((48 * 3600) / stepSec); // 48時間先まで探す
+        const stepSec = 15;
+        const searchDays = 10;
+        const maxSteps = Math.floor((searchDays * 86400) / stepSec);
         const start = new Date();
-        const track = [];
-        let entryTime = null;
-        let exitTime = null;
 
-        for (let i = 0; i < maxSteps; i++) {
+        let pass = null;
+        let found = null;
+
+        for (let i = 0; i < maxSteps && !found; i++) {
             const t = new Date(start.getTime() + i * stepSec * 1000);
-            const geo = getGeodetic(satrec, t);
-            if (!geo) continue;
+            const posVel = satellite.propagate(satrec, t);
+            if (!posVel.position) continue;
+            const gmst = satellite.gstime(t);
 
-            if (isOverJapan(geo.lat, geo.lon)) {
-                if (entryTime === null) entryTime = t;
-                exitTime = t;
-                track.push([geo.lat, geo.lon]);
-            } else if (entryTime !== null) {
-                break; // 一度日本上空に入ってから抜けたので、その回の通過が確定
+            let city;
+            if (pass) {
+                city = pass.city; // 通過中は最初に選んだ都市を基準にし続ける（都市が途中で切り替わらないように）
+            } else {
+                const geo = satellite.eciToGeodetic(posVel.position, gmst);
+                city = nearestCity(satellite.degreesLat(geo.latitude), satellite.degreesLong(geo.longitude));
+            }
+
+            const sunEci = sunPositionEci(t);
+            const look = computeLook(posVel.position, gmst, city, sunEci);
+            const illuminated = isSunlit(posVel.position, sunEci);
+            const visible = look.elevationDeg > 0 && illuminated && look.sunElevationDeg < DARK_SKY_SUN_ELEVATION_DEG;
+
+            if (visible) {
+                if (!pass) pass = { city, start: t, startAz: look.azimuthRad, maxElevation: -90, track: [] };
+                pass.end = t;
+                pass.endAz = look.azimuthRad;
+                if (look.elevationDeg > pass.maxElevation) pass.maxElevation = look.elevationDeg;
+                const geo = satellite.eciToGeodetic(posVel.position, gmst);
+                pass.track.push([satellite.degreesLat(geo.latitude), satellite.degreesLong(geo.longitude)]);
+            } else if (pass) {
+                if (pass.maxElevation >= MIN_MAX_ELEVATION_DEG) {
+                    found = pass;
+                } else {
+                    pass = null; // 地平線をかすめるだけの弱い通過は捨てて次を探す
+                }
             }
         }
 
-        if (entryTime === null) {
-            issCardEl.innerHTML = `<p style="text-align:center;">今後48時間以内に日本上空を通過する予定は見つかりませんでした</p>`;
+        if (!found) {
+            issCardEl.innerHTML = `<p style="text-align:center;">今後${searchDays}日以内に肉眼で見えそうな通過予定は見つかりませんでした</p>`;
             return;
         }
 
-        // 通過前後5分ぶんを、地図の範囲内に収まる部分だけ薄い軌跡として表示する
-        const contextSec = 5 * 60;
-        const leadTrack = [];
-        for (let s = -contextSec; s < 0; s += stepSec) {
-            const geo = getGeodetic(satrec, new Date(entryTime.getTime() + s * 1000));
-            if (geo && isWithinMap(geo.lat, geo.lon)) leadTrack.push([geo.lat, geo.lon]);
-        }
-        const trailTrack = [];
-        for (let s = stepSec; s <= contextSec; s += stepSec) {
-            const geo = getGeodetic(satrec, new Date(exitTime.getTime() + s * 1000));
-            if (geo && isWithinMap(geo.lat, geo.lon)) trailTrack.push([geo.lat, geo.lon]);
-        }
-
-        renderIssPass(track, leadTrack, trailTrack, entryTime, exitTime, stepSec);
+        renderIssPass(found);
     } catch (err) {
         issCardEl.innerHTML = `<p style="text-align:center;color:#c33;">ISS情報の取得に失敗しました: ${err.message}</p>`;
     }
