@@ -99,12 +99,23 @@
     .footer a {
         color: #777;
     }
+    .iss-card svg {
+        width: 100%;
+        max-width: 300px;
+        display: block;
+        margin: 10px auto 4px;
+    }
+    .iss-land { fill: #cddceb; stroke: #7f9db5; stroke-width: 1.5; }
+    .iss-track { fill: none; stroke: #e6510f; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+    .iss-track-context { fill: none; stroke: #e6510f; stroke-width: 2; stroke-dasharray: 4 4; stroke-linecap: round; opacity: 0.5; }
+    .iss-marker { font-size: 26px; text-anchor: middle; dominant-baseline: middle; }
     @media (prefers-color-scheme: dark) {
         body { background: #15181d; color: #e6e6e6; }
         h3 { color: #aaa; }
         .card { background: #22262c; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
         .detail { color: #aaa; }
         .pill.advisory { color: #222; }
+        .iss-land { fill: #2c3b4a; stroke: #5c7d95; }
     }
 </style>
 </head>
@@ -120,8 +131,12 @@
 <h3>天気図（気象庁発表）</h3>
 <div class="map-card" id="mapCard"><p style="text-align:center;">読み込み中...</p></div>
 
-<p class="footer">データ提供: 気象庁</p>
+<h3>ISS（国際宇宙ステーション）の日本上空通過</h3>
+<div class="card iss-card" id="issCard"><p style="text-align:center;">読み込み中...</p></div>
 
+<p class="footer">データ提供: 気象庁 / CelesTrak・地図データ: Natural Earth</p>
+
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5/dist/satellite.min.js"></script>
 <script>
 const OFFICE_CODE = "130000";   // 東京都
 const FORECAST_AREA_CODE = "130010"; // 東京地方（八王子市を含む）
@@ -293,9 +308,142 @@ async function loadWeatherMap() {
     }
 }
 
+// 日本列島のシンプルな輪郭（Natural Earth 110m, パブリックドメイン）を
+// 経度127-147度・緯度29-46.5度の範囲でSVG座標(520x620)に投影済みのパスデータ
+const JAPAN_MAP = { lonMin: 127, lonMax: 147, latMin: 29, latMax: 46.5, w: 520, h: 620 };
+const JAPAN_PATH = "M387,259.31L362.95,294.98L363.39,331.54L353.59,359.81L358.13,377.57L344.59,402.54L311.36,419.21L265.66,421.38L228.62,461.82L211.15,448.2L210.07,421.72L164.85,429.54L134.08,446.23L103.64,446.9L130,472.97L112.65,533.19L95.84,548.09L83.26,534.33L89.64,502.4L73.18,492.09L62.62,467.8L87.2,456.88L100.84,434.61L126.99,416.3L146.06,392.07L197.82,381.51L225.62,388.75L252.82,325.77L270.16,342.69L308.3,307.25L323.09,293.49L339.42,250.17L334.97,210.33L345.95,187.95L373.59,181.45L387.77,230.58L387,259.31Z M457.95,89.96L476.34,74.94L482.12,114.71L443.55,124.41L420.78,159.6L379.9,135.38L365.75,174.15L336.83,174.68L333.26,139.46L346.11,112.19L373.89,110.22L381.47,61.22L389.16,33.6L419.71,70.49L439.66,82.4L457.95,89.96Z M139.65,461.86L154.03,440.72L168.82,444.82L179.51,429.93L198.6,437.57L201.93,449.72L187.29,471.16L176.62,459.79L163.29,468.03L156.39,488.75L139.44,478.66L139.65,461.86Z";
+// 通過判定用: 上と同じ島の輪郭を[経度,緯度]の配列で持つ（陸地の上にいるかどうかの判定に使う）
+const JAPAN_RINGS = [[[141.885,39.181],[140.959,38.174],[140.976,37.142],[140.6,36.344],[140.774,35.843],[140.253,35.138],[138.976,34.668],[137.218,34.606],[135.793,33.465],[135.121,33.849],[135.079,34.597],[133.34,34.376],[132.157,33.905],[130.986,33.886],[132,33.15],[131.333,31.45],[130.686,31.03],[130.202,31.418],[130.448,32.319],[129.815,32.61],[129.408,33.296],[130.354,33.604],[130.878,34.233],[131.884,34.75],[132.618,35.433],[134.608,35.732],[135.678,35.527],[136.724,37.305],[137.391,36.827],[138.858,37.827],[139.426,38.216],[140.055,39.439],[139.883,40.563],[140.306,41.195],[141.369,41.379],[141.914,39.992],[141.885,39.181]],[[144.613,43.961],[145.321,44.385],[145.543,43.262],[144.06,42.988],[143.184,41.995],[141.611,42.679],[141.067,41.585],[139.955,41.57],[139.818,42.564],[140.312,43.333],[141.381,43.389],[141.672,44.772],[141.968,45.551],[143.143,44.51],[143.91,44.174],[144.613,43.961]],[[132.371,33.464],[132.924,34.06],[133.493,33.945],[133.904,34.365],[134.638,34.149],[134.766,33.806],[134.203,33.201],[133.793,33.522],[133.28,33.29],[133.015,32.705],[132.363,32.989],[132.371,33.464]]];
+
+function projectLatLon(lat, lon) {
+    const x = ((lon - JAPAN_MAP.lonMin) / (JAPAN_MAP.lonMax - JAPAN_MAP.lonMin)) * JAPAN_MAP.w;
+    const y = ((JAPAN_MAP.latMax - lat) / (JAPAN_MAP.latMax - JAPAN_MAP.latMin)) * JAPAN_MAP.h;
+    return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+}
+
+// レイキャスティング法で「その経度緯度が陸地の輪郭の内側にあるか」を判定する
+function pointInRing(lon, lat, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], yi = ring[i][1];
+        const xj = ring[j][0], yj = ring[j][1];
+        const intersect = ((yi > lat) !== (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function isOverJapan(lat, lon) {
+    return JAPAN_RINGS.some(ring => pointInRing(lon, lat, ring));
+}
+
+function isWithinMap(lat, lon) {
+    return lat >= JAPAN_MAP.latMin && lat <= JAPAN_MAP.latMax &&
+           lon >= JAPAN_MAP.lonMin && lon <= JAPAN_MAP.lonMax;
+}
+
+function getGeodetic(satrec, t) {
+    const posVel = satellite.propagate(satrec, t);
+    if (!posVel.position) return null;
+    const gmst = satellite.gstime(t);
+    const geo = satellite.eciToGeodetic(posVel.position, gmst);
+    return { lat: satellite.degreesLat(geo.latitude), lon: satellite.degreesLong(geo.longitude) };
+}
+
+function formatJst(date) {
+    return date.toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo", month: "numeric", day: "numeric",
+        hour: "2-digit", minute: "2-digit"
+    });
+}
+
+function renderIssPass(track, leadTrack, trailTrack, entryTime, exitTime, stepSec) {
+    const issCardEl = document.getElementById("issCard");
+    const toPath = pts => "M" + pts.map(([lat, lon]) => projectLatLon(lat, lon).join(",")).join(" L");
+    const trackPath = toPath(track);
+    const marker = projectLatLon(...track[Math.floor(track.length / 2)]);
+
+    const contextPaths = [leadTrack, trailTrack]
+        .filter(seg => seg.length > 1)
+        .map(seg => `<path class="iss-track-context" d="${toPath(seg)}"></path>`)
+        .join("");
+
+    // 通過区間はstepSec間隔のサンプリングなので、実際の滞在時間はサンプル数×stepSec程度とみなす
+    const durationSec = Math.max(track.length * stepSec, Math.round((exitTime - entryTime) / 1000));
+    const timeLines = durationSec < 90
+        ? `<p class="detail">日本上空を通過: ${formatJst(entryTime)} ごろ（約${durationSec}秒間）</p>`
+        : `<p class="detail">日本に差し掛かる: ${formatJst(entryTime)} ごろ</p>
+           <p class="detail">通過し終わる: ${formatJst(exitTime)} ごろ</p>`;
+
+    issCardEl.innerHTML = `
+        ${timeLines}
+        <svg viewBox="0 0 ${JAPAN_MAP.w} ${JAPAN_MAP.h}">
+            <path class="iss-land" d="${JAPAN_PATH}"></path>
+            ${contextPaths}
+            <path class="iss-track" d="${trackPath}"></path>
+            <text class="iss-marker" x="${marker[0]}" y="${marker[1]}">🛰️</text>
+        </svg>
+    `;
+}
+
+async function loadIssPass() {
+    const issCardEl = document.getElementById("issCard");
+    try {
+        const res = await fetch("https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE", { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const lines = (await res.text()).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const satrec = satellite.twoline2satrec(lines[1], lines[2]);
+
+        const stepSec = 20;
+        const maxSteps = Math.floor((48 * 3600) / stepSec); // 48時間先まで探す
+        const start = new Date();
+        const track = [];
+        let entryTime = null;
+        let exitTime = null;
+
+        for (let i = 0; i < maxSteps; i++) {
+            const t = new Date(start.getTime() + i * stepSec * 1000);
+            const geo = getGeodetic(satrec, t);
+            if (!geo) continue;
+
+            if (isOverJapan(geo.lat, geo.lon)) {
+                if (entryTime === null) entryTime = t;
+                exitTime = t;
+                track.push([geo.lat, geo.lon]);
+            } else if (entryTime !== null) {
+                break; // 一度日本上空に入ってから抜けたので、その回の通過が確定
+            }
+        }
+
+        if (entryTime === null) {
+            issCardEl.innerHTML = `<p style="text-align:center;">今後48時間以内に日本上空を通過する予定は見つかりませんでした</p>`;
+            return;
+        }
+
+        // 通過前後5分ぶんを、地図の範囲内に収まる部分だけ薄い軌跡として表示する
+        const contextSec = 5 * 60;
+        const leadTrack = [];
+        for (let s = -contextSec; s < 0; s += stepSec) {
+            const geo = getGeodetic(satrec, new Date(entryTime.getTime() + s * 1000));
+            if (geo && isWithinMap(geo.lat, geo.lon)) leadTrack.push([geo.lat, geo.lon]);
+        }
+        const trailTrack = [];
+        for (let s = stepSec; s <= contextSec; s += stepSec) {
+            const geo = getGeodetic(satrec, new Date(exitTime.getTime() + s * 1000));
+            if (geo && isWithinMap(geo.lat, geo.lon)) trailTrack.push([geo.lat, geo.lon]);
+        }
+
+        renderIssPass(track, leadTrack, trailTrack, entryTime, exitTime, stepSec);
+    } catch (err) {
+        issCardEl.innerHTML = `<p style="text-align:center;color:#c33;">ISS情報の取得に失敗しました: ${err.message}</p>`;
+    }
+}
+
 loadForecast();
 loadWarnings();
 loadWeatherMap();
+loadIssPass();
 </script>
 </body>
 </html>
