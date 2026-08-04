@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earth Alive - 今、この瞬間の地球を眺める</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif;
+  }
+  canvas { display: block; touch-action: none; }
+
+  #title {
+    position: fixed;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 0.35em;
+    font-size: 0.8rem;
+    font-weight: 300;
+    text-shadow: 0 0 12px rgba(0,0,0,0.8);
+    pointer-events: none;
+    user-select: none;
+    transition: opacity 1.2s ease;
+  }
+
+  #back {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    color: rgba(255,255,255,0.55);
+    text-decoration: none;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    padding: 6px 12px;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 999px;
+    transition: opacity 1.2s ease, color 0.2s, border-color 0.2s;
+    z-index: 10;
+  }
+  #back:hover {
+    color: rgba(255,255,255,0.95);
+    border-color: rgba(255,255,255,0.6);
+  }
+
+  #loading {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.6);
+    font-size: 0.85rem;
+    letter-spacing: 0.2em;
+    z-index: 20;
+    background: #000;
+    transition: opacity 0.8s ease;
+  }
+
+  .fade-idle #title,
+  .fade-idle #back {
+    opacity: 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">LOADING EARTH…</div>
+<a id="back" href="index.html">&larr; 天気予報へ戻る</a>
+<div id="title">EARTH&nbsp;ALIVE</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// ----- 基本セットアップ -----
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 6);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ----- 背景の星空 -----
+const starGeo = new THREE.SphereGeometry(80, 64, 64);
+const starLoader = new THREE.TextureLoader();
+const starTex = starLoader.load("textures/2k_stars_milky_way.jpg");
+starTex.colorSpace = THREE.SRGBColorSpace;
+const starMat = new THREE.MeshBasicMaterial({ map: starTex, side: THREE.BackSide });
+scene.add(new THREE.Mesh(starGeo, starMat));
+
+// ----- 太陽（平行光源） -----
+const sun = new THREE.DirectionalLight(0xffffff, 3.2);
+sun.position.set(5, 2, 3);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x223344, 0.06));
+
+// ----- 地球本体（昼/夜をカスタムシェーダーでブレンド） -----
+const loader = new THREE.TextureLoader();
+let loaded = 0;
+const total = 3;
+function onTexLoaded() {
+  loaded++;
+  if (loaded >= total) {
+    document.getElementById("loading").style.opacity = "0";
+    setTimeout(() => document.getElementById("loading").remove(), 900);
+  }
+}
+
+const dayTex = loader.load("textures/2k_earth_daymap.jpg", onTexLoaded);
+const nightTex = loader.load("textures/2k_earth_nightmap.jpg", onTexLoaded);
+const cloudsTex = loader.load("textures/2k_earth_clouds.jpg", onTexLoaded);
+dayTex.colorSpace = THREE.SRGBColorSpace;
+nightTex.colorSpace = THREE.SRGBColorSpace;
+cloudsTex.colorSpace = THREE.SRGBColorSpace;
+
+const earthGeo = new THREE.SphereGeometry(2, 128, 128);
+
+const earthMat = new THREE.ShaderMaterial({
+  uniforms: {
+    dayTexture: { value: dayTex },
+    nightTexture: { value: nightTex },
+    sunDirection: { value: new THREE.Vector3(1, 0, 0) },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    varying vec3 vNormal;
+    void main() {
+      vUv = uv;
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D dayTexture;
+    uniform sampler2D nightTexture;
+    uniform vec3 sunDirection;
+    varying vec2 vUv;
+    varying vec3 vNormal;
+
+    void main() {
+      float intensity = dot(normalize(vNormal), normalize(sunDirection));
+      float mixFactor = smoothstep(-0.15, 0.15, intensity);
+
+      vec4 dayColor = texture2D(dayTexture, vUv);
+      vec3 nightRaw = texture2D(nightTexture, vUv).rgb;
+      // 街の灯りは暗いピクセルが多いので、明るい部分（都市）だけを強く持ち上げる
+      vec3 nightColor = pow(nightRaw, vec3(0.7)) * 2.2;
+
+      vec3 color = mix(nightColor, dayColor.rgb, mixFactor);
+
+      // ゴールデンアワー: 昼夜境界にオレンジ〜紫の細い帯を重ねる
+      float terminator = 1.0 - abs(intensity);
+      float band = smoothstep(0.75, 1.0, terminator) * smoothstep(-0.35, 0.05, intensity) * smoothstep(0.35, -0.05, intensity);
+      vec3 goldenColor = mix(vec3(1.0, 0.45, 0.15), vec3(0.35, 0.15, 0.55), smoothstep(0.0, 1.0, (intensity + 0.3) * 1.6));
+      color = mix(color, color + goldenColor * 0.7, band * 0.6);
+
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `,
+});
+
+const earth = new THREE.Mesh(earthGeo, earthMat);
+scene.add(earth);
+
+// ----- 雲レイヤー -----
+const cloudsMat = new THREE.MeshStandardMaterial({
+  map: cloudsTex,
+  transparent: true,
+  opacity: 0.45,
+  blending: THREE.NormalBlending,
+  depthWrite: false,
+});
+const clouds = new THREE.Mesh(new THREE.SphereGeometry(2.015, 128, 128), cloudsMat);
+scene.add(clouds);
+
+// ----- 大気の光彩（ふちの淡いグロー） -----
+const atmosphereMat = new THREE.ShaderMaterial({
+  vertexShader: `
+    varying vec3 vNormal;
+    void main() {
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vNormal;
+    void main() {
+      float intensity = pow(0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.5);
+      gl_FragColor = vec4(0.35, 0.6, 1.0, 1.0) * intensity;
+    }
+  `,
+  blending: THREE.AdditiveBlending,
+  side: THREE.BackSide,
+  transparent: true,
+});
+const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(2.15, 128, 128), atmosphereMat);
+scene.add(atmosphere);
+
+// ----- 太陽の方向を実際の日時から計算(簡易) -----
+function updateSunDirection() {
+  const now = new Date();
+  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60;
+  // 12:00 UTC で経度0度が正午になるよう簡易モデル化
+  const angle = ((utcHours / 24) * Math.PI * 2) + Math.PI;
+  const sunDir = new THREE.Vector3(Math.cos(angle), 0.15, Math.sin(angle));
+  earthMat.uniforms.sunDirection.value.copy(sunDir);
+  sun.position.copy(sunDir).multiplyScalar(10);
+}
+updateSunDirection();
+setInterval(updateSunDirection, 60 * 1000);
+
+// ----- カメラ操作 -----
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 2.8;
+controls.maxDistance = 14;
+controls.rotateSpeed = 0.45;
+controls.zoomSpeed = 0.6;
+controls.enablePan = false;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.18;
+
+// 操作していない時間をトラッキングして、UIをふわっと消す
+let idleTimer = null;
+function resetIdle() {
+  document.body.classList.remove("fade-idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add("fade-idle"), 4000);
+}
+["pointerdown", "pointermove", "wheel"].forEach(ev =>
+  window.addEventListener(ev, resetIdle, { passive: true })
+);
+resetIdle();
+
+// ----- アニメーションループ -----
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+
+  earth.rotation.y += delta * 0.02;
+  clouds.rotation.y += delta * 0.026;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
