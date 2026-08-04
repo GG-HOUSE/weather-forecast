@@ -65,8 +65,69 @@
   }
 
   .fade-idle #title,
-  .fade-idle #back {
+  .fade-idle #back,
+  .fade-idle #effectsToggle {
     opacity: 0;
+  }
+
+  #effectsToggle {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    color: rgba(255,255,255,0.55);
+    background: transparent;
+    font-family: inherit;
+    letter-spacing: 0.05em;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: opacity 1.2s ease, color 0.2s, border-color 0.2s;
+    z-index: 10;
+  }
+  #effectsToggle:hover {
+    color: rgba(255,255,255,0.95);
+    border-color: rgba(255,255,255,0.6);
+  }
+
+  #effectsPanel {
+    position: fixed;
+    top: 58px;
+    right: 20px;
+    min-width: 190px;
+    background: rgba(15,18,24,0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 12px;
+    padding: 14px 16px;
+    z-index: 10;
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  #effectsPanel.open {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+  #effectsPanel label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: rgba(255,255,255,0.85);
+    font-size: 0.85rem;
+    padding: 6px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  #effectsPanel input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: #6fa8ff;
+    cursor: pointer;
   }
 </style>
 </head>
@@ -75,6 +136,12 @@
 <div id="loading">LOADING EARTH…</div>
 <a id="back" href="index.html">&larr; 天気予報へ戻る</a>
 <div id="title">EARTH&nbsp;ALIVE</div>
+
+<button id="effectsToggle">EFFECTS ▾</button>
+<div id="effectsPanel">
+  <label><input type="checkbox" id="fx-clouds" checked> 雲</label>
+  <label><input type="checkbox" id="fx-citylights" checked> 都市の灯り（強調）</label>
+</div>
 
 <script type="importmap">
 {
@@ -146,6 +213,7 @@ const earthMat = new THREE.ShaderMaterial({
     dayTexture: { value: dayTex },
     nightTexture: { value: nightTex },
     sunDirection: { value: new THREE.Vector3(1, 0, 0) },
+    nightBoost: { value: 1.0 },
   },
   vertexShader: `
     varying vec2 vUv;
@@ -160,6 +228,7 @@ const earthMat = new THREE.ShaderMaterial({
     uniform sampler2D dayTexture;
     uniform sampler2D nightTexture;
     uniform vec3 sunDirection;
+    uniform float nightBoost;
     varying vec2 vUv;
     varying vec3 vNormal;
 
@@ -170,7 +239,7 @@ const earthMat = new THREE.ShaderMaterial({
       vec4 dayColor = texture2D(dayTexture, vUv);
       vec3 nightRaw = texture2D(nightTexture, vUv).rgb;
       // 街の灯りは暗いピクセルが多いので、明るい部分（都市）だけを強く持ち上げる
-      vec3 nightColor = pow(nightRaw, vec3(0.7)) * 2.2;
+      vec3 nightColor = pow(nightRaw, vec3(0.7)) * 2.2 * nightBoost;
 
       vec3 color = mix(nightColor, dayColor.rgb, mixFactor);
 
@@ -247,17 +316,43 @@ controls.enablePan = false;
 controls.autoRotate = true;
 controls.autoRotateSpeed = 0.18;
 
-// 操作していない時間をトラッキングして、UIをふわっと消す
+// 操作していない時間をトラッキングして、UIをふわっと消す（エフェクトパネルを開いている間は消さない）
+const effectsPanel = document.getElementById("effectsPanel");
 let idleTimer = null;
 function resetIdle() {
   document.body.classList.remove("fade-idle");
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => document.body.classList.add("fade-idle"), 4000);
+  idleTimer = setTimeout(() => {
+    if (!effectsPanel.classList.contains("open")) {
+      document.body.classList.add("fade-idle");
+    }
+  }, 4000);
 }
 ["pointerdown", "pointermove", "wheel"].forEach(ev =>
   window.addEventListener(ev, resetIdle, { passive: true })
 );
 resetIdle();
+
+// ----- エフェクトパネルの開閉 -----
+const effectsToggle = document.getElementById("effectsToggle");
+effectsToggle.addEventListener("click", () => {
+  effectsPanel.classList.toggle("open");
+  resetIdle();
+});
+
+// ----- エフェクト: 雲の表示/非表示（フェードイン・フェードアウト） -----
+let cloudsTargetOpacity = 0.45;
+document.getElementById("fx-clouds").addEventListener("change", (e) => {
+  cloudsTargetOpacity = e.target.checked ? 0.45 : 0;
+  resetIdle();
+});
+
+// ----- エフェクト: 都市の灯りの強調 -----
+let nightBoostTarget = 1.0;
+document.getElementById("fx-citylights").addEventListener("change", (e) => {
+  nightBoostTarget = e.target.checked ? 1.0 : 0.35;
+  resetIdle();
+});
 
 // ----- アニメーションループ -----
 const clock = new THREE.Clock();
@@ -267,6 +362,10 @@ function animate() {
 
   earth.rotation.y += delta * 0.02;
   clouds.rotation.y += delta * 0.026;
+
+  // フェードはlerpでなめらかに
+  cloudsMat.opacity += (cloudsTargetOpacity - cloudsMat.opacity) * Math.min(delta * 3, 1);
+  earthMat.uniforms.nightBoost.value += (nightBoostTarget - earthMat.uniforms.nightBoost.value) * Math.min(delta * 3, 1);
 
   controls.update();
   renderer.render(scene, camera);
