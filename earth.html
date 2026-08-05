@@ -140,7 +140,7 @@
 <button id="effectsToggle">EFFECTS ▾</button>
 <div id="effectsPanel">
   <label><input type="checkbox" id="fx-clouds" checked> 雲</label>
-  <label><input type="checkbox" id="fx-citylights"> 都市の灯り（強調）</label>
+  <label><input type="checkbox" id="fx-citylights"> 都市の灯り</label>
   <label><input type="checkbox" id="fx-iss" checked> ISS（国際宇宙ステーション）</label>
   <label><input type="checkbox" id="fx-aurora" checked> オーロラ</label>
   <label><input type="checkbox" id="fx-lightning" checked> 雷</label>
@@ -238,19 +238,24 @@ const earthMat = new THREE.ShaderMaterial({
 
     void main() {
       float intensity = dot(normalize(vNormal), normalize(sunDirection));
-      float mixFactor = smoothstep(-0.15, 0.15, intensity);
+      float mixFactor = smoothstep(-0.4, -0.1, intensity);
 
       vec4 dayColor = texture2D(dayTexture, vUv);
+      // 海だけを狙って明るく鮮やかな青に(青が赤・緑より強いピクセル=海、という単純な判定)
+      float oceanMask = clamp((dayColor.b - max(dayColor.r, dayColor.g)) * 5.0, 0.0, 1.0);
+      dayColor.rgb = mix(dayColor.rgb, dayColor.rgb * vec3(1.0, 1.12, 1.4) + vec3(0.0, 0.01, 0.03), oceanMask);
+
       vec3 nightRaw = texture2D(nightTexture, vUv).rgb;
       // 街の灯りは暗いピクセルが多いので、明るい部分（都市）だけを強く持ち上げる
       vec3 nightColor = pow(nightRaw, vec3(0.7)) * 2.2 * nightBoost;
 
       vec3 color = mix(nightColor, dayColor.rgb, mixFactor);
 
-      // ゴールデンアワー: 昼夜境界にオレンジ〜紫の細い帯を重ねる
-      float terminator = 1.0 - abs(intensity);
-      float band = smoothstep(0.75, 1.0, terminator) * smoothstep(-0.35, 0.05, intensity) * smoothstep(0.35, -0.05, intensity);
-      vec3 goldenColor = mix(vec3(1.0, 0.45, 0.15), vec3(0.35, 0.15, 0.55), smoothstep(0.0, 1.0, (intensity + 0.3) * 1.6));
+      // ゴールデンアワー: 昼夜境界(mixFactorの中心と同じ位置)にオレンジ〜紫の細い帯を重ねる
+      const float TERMINATOR_CENTER = -0.25;
+      float distFromTerminator = abs(intensity - TERMINATOR_CENTER);
+      float band = 1.0 - smoothstep(0.0, 0.18, distFromTerminator);
+      vec3 goldenColor = mix(vec3(1.0, 0.45, 0.15), vec3(0.35, 0.15, 0.55), smoothstep(0.0, 1.0, (intensity - TERMINATOR_CENTER) * 1.6));
       color = mix(color, color + goldenColor * 0.7, band * 0.6);
 
       gl_FragColor = vec4(color, 1.0);
