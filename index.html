@@ -195,6 +195,24 @@ async function loadForecast() {
         const popArea = popSeries.areas[popAreaIndex >= 0 ? popAreaIndex : 0];
 
         let tempsByDate = {};
+
+        // 本日・明日は「3日間気温」シリーズ(タイムスタンプが4つ、日付ごとにまとめて最低/最高を算出)
+        const shortTempSeries = shortTerm.timeSeries[2];
+        if (shortTempSeries) {
+            const stArea = shortTempSeries.areas.find(a => a.area.code === TEMP_AREA_CODE) || shortTempSeries.areas[0];
+            const valuesByDate = {};
+            shortTempSeries.timeDefines.forEach((d, i) => {
+                const v = stArea.temps ? stArea.temps[i] : "";
+                if (v === "" || v == null) return;
+                const date = d.slice(0, 10);
+                (valuesByDate[date] = valuesByDate[date] || []).push(Number(v));
+            });
+            Object.entries(valuesByDate).forEach(([date, vals]) => {
+                tempsByDate[date] = { min: String(Math.min(...vals)), max: String(Math.max(...vals)) };
+            });
+        }
+
+        // 明後日以降は週間気温データで補完・上書き(値が空の日は上書きしない)
         const weekly = data[1];
         if (weekly) {
             const tempSeries = weekly.timeSeries.find(ts => ts.areas[0].tempsMin || ts.areas[0].tempsMax);
@@ -202,10 +220,11 @@ async function loadForecast() {
                 const tempArea = tempSeries.areas.find(a => a.area.code === TEMP_AREA_CODE) || tempSeries.areas[0];
                 tempSeries.timeDefines.forEach((d, i) => {
                     const date = d.slice(0, 10);
-                    tempsByDate[date] = {
-                        min: tempArea.tempsMin ? tempArea.tempsMin[i] : "",
-                        max: tempArea.tempsMax ? tempArea.tempsMax[i] : ""
-                    };
+                    const min = tempArea.tempsMin ? tempArea.tempsMin[i] : "";
+                    const max = tempArea.tempsMax ? tempArea.tempsMax[i] : "";
+                    if (min || max) {
+                        tempsByDate[date] = { min, max };
+                    }
                 });
             }
         }
