@@ -347,7 +347,10 @@ const issTrailMat = new THREE.LineBasicMaterial({
 });
 const issTrailGeo = new THREE.BufferGeometry();
 const issTrail = new THREE.Line(issTrailGeo, issTrailMat);
-issGroup.add(issTrail);
+issTrail.visible = false;
+// 軌跡の各点はすでに地球中心からの絶対座標なので、issGroup(現在地へ移動する)ではなく
+// earthに直接ぶら下げる(issGroupの子にすると現在地の分だけ二重にズレてしまう)
+earth.add(issTrail);
 
 let issSatrec = null;
 async function loadIssTle() {
@@ -570,6 +573,7 @@ function animate() {
   // ISS
   issOpacity += (issTargetOpacity - issOpacity) * fade;
   issGroup.visible = issOpacity > 0.01;
+  issTrail.visible = issOpacity > 0.01;
   issSprite.material.opacity = issOpacity;
   issTrailMat.opacity = issOpacity * 0.55;
 
