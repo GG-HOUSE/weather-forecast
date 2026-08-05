@@ -111,6 +111,20 @@
     .iss-city { fill: #7f9db5; }
     .iss-city-ref { fill: #e6510f; stroke: white; stroke-width: 1.5; }
     .iss-city-label { font-size: 13px; text-anchor: middle; fill: #444; font-weight: bold; }
+    .hourly-card { overflow-x: auto; padding: 16px 12px; -webkit-overflow-scrolling: touch; }
+    .hourly-inner { display: inline-block; }
+    .hourly-chart { display: block; }
+    .hourly-line { fill: none; stroke: #3b6fa0; stroke-width: 1.5; }
+    .hourly-dot { fill: #3b6fa0; }
+    .hourly-temp-label { font-size: 8.5px; fill: #555; text-anchor: middle; }
+    .hourly-daysep { stroke: #bbb; stroke-width: 1; stroke-dasharray: 3 3; }
+    .hourly-row { display: flex; }
+    .hourly-col { flex: 0 0 42px; width: 42px; text-align: center; border-radius: 6px; }
+    .hourly-col.is-now { background: rgba(59, 111, 160, 0.14); }
+    .hourly-col.is-new-day { box-shadow: inset 2px 0 0 #bbb; }
+    .hourly-icon { font-size: 1.15rem; line-height: 1.3; }
+    .hourly-time { font-size: 0.68rem; color: #666; margin-top: 1px; }
+    .hourly-daylabel { font-size: 0.7rem; color: #3b6fa0; font-weight: bold; margin: 0 0 4px; }
     @media (prefers-color-scheme: dark) {
         body { background: #15181d; color: #e6e6e6; }
         h3 { color: #aaa; }
@@ -120,6 +134,13 @@
         .iss-land { fill: #2c3b4a; stroke: #5c7d95; }
         .iss-city-label { fill: #ddd; }
         .iss-city-ref { stroke: #22262c; }
+        .hourly-line { stroke: #6fa8ff; }
+        .hourly-dot { fill: #6fa8ff; }
+        .hourly-temp-label { fill: #bbb; }
+        .hourly-daysep { stroke: #444; }
+        .hourly-col.is-now { background: rgba(111, 168, 255, 0.18); }
+        .hourly-col.is-new-day { box-shadow: inset 2px 0 0 #444; }
+        .hourly-time { color: #999; }
     }
 </style>
 </head>
@@ -129,6 +150,9 @@
 <p class="updated" id="updated">読み込み中...</p>
 
 <div id="cards"></div>
+
+<h3>1時間ごとの天気（八王子）</h3>
+<div class="card hourly-card" id="hourlyCard"><p style="text-align:center;">読み込み中...</p></div>
 
 <h3>警報・注意報</h3>
 <div class="warnings" id="warnings"><p class="no-warning">確認中...</p></div>
@@ -147,6 +171,7 @@ const OFFICE_CODE = "130000";   // 東京都
 const FORECAST_AREA_CODE = "130010"; // 東京地方（八王子市を含む）
 const TEMP_AREA_CODE = "44132"; // 東京（大手町）
 const HACHIOJI_CLASS20 = "1320100"; // 八王子市（警報・注意報用）
+const HACHIOJI_CLASS20_COORD = { lat: 35.6564, lon: 139.3390 }; // 八王子市役所付近（1時間ごとの天気=Open-Meteo用）
 
 // SKILL.mdで実データ照合済みのコード→名称対応。未知のコードはそのままコード表示する。
 const WARNING_CODE_MAP = {
@@ -262,6 +287,105 @@ async function loadForecast() {
     } catch (err) {
         updatedEl.textContent = "天気データの取得に失敗しました";
         cardsEl.innerHTML = `<p style="text-align:center;color:#c33;">${err.message}</p>`;
+    }
+}
+
+// Open-Meteo(無料・APIキー不要)のWMO天気コード → 絵文字
+function weatherCodeToIcon(code) {
+    if (code === 0) return "☀️";
+    if (code === 1) return "🌤️";
+    if (code === 2) return "⛅";
+    if (code === 3) return "☁️";
+    if (code === 45 || code === 48) return "🌫️";
+    if ([51, 53, 55, 56, 57].includes(code)) return "🌦️";
+    if ([61, 63, 65, 66, 67].includes(code)) return "🌧️";
+    if ([71, 73, 75, 77].includes(code)) return "❄️";
+    if ([80, 81, 82].includes(code)) return "☔";
+    if ([85, 86].includes(code)) return "🌨️";
+    if ([95, 96, 99].includes(code)) return "⛈️";
+    return "🌡️";
+}
+
+// 現在のJST時刻を、Open-Meteoのtime配列と同じ "YYYY-MM-DDTHH:00" 形式で返す
+function currentJstHourKey() {
+    const parts = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false
+    }).formatToParts(new Date());
+    const get = type => parts.find(p => p.type === type).value;
+    const hour = get("hour") === "24" ? "00" : get("hour"); // 一部環境で24:00表記になる対策
+    return `${get("year")}-${get("month")}-${get("day")}T${hour}:00`;
+}
+
+async function loadHourly() {
+    const hourlyEl = document.getElementById("hourlyCard");
+    try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${HACHIOJI_CLASS20_COORD.lat}&longitude=${HACHIOJI_CLASS20_COORD.lon}&hourly=temperature_2m,weathercode&forecast_days=2&timezone=Asia%2FTokyo`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+
+        const times = data.hourly.time;
+        const temps = data.hourly.temperature_2m;
+        const codes = data.hourly.weathercode;
+        const n = times.length;
+
+        const colWidth = 42;
+        const chartHeight = 66;
+        const chartPad = 10;
+        const minT = Math.min(...temps);
+        const maxT = Math.max(...temps);
+        const range = Math.max(maxT - minT, 1);
+        const yFor = t => chartHeight - chartPad - ((t - minT) / range) * (chartHeight - chartPad * 2);
+
+        const nowKey = currentJstHourKey();
+        const nowIndex = times.indexOf(nowKey);
+
+        const points = temps.map((t, i) => `${i * colWidth + colWidth / 2},${yFor(t).toFixed(1)}`).join(" ");
+
+        const daySepX = [];
+        for (let i = 1; i < n; i++) {
+            if (times[i].slice(0, 10) !== times[i - 1].slice(0, 10)) daySepX.push(i * colWidth);
+        }
+        const daySepLines = daySepX.map(x =>
+            `<line class="hourly-daysep" x1="${x}" y1="0" x2="${x}" y2="${chartHeight}"></line>`
+        ).join("");
+
+        const dotsAndLabels = temps.map((t, i) => {
+            const x = i * colWidth + colWidth / 2;
+            const y = yFor(t);
+            return `<circle class="hourly-dot" cx="${x}" cy="${y.toFixed(1)}" r="2.3"></circle>
+                    <text class="hourly-temp-label" x="${x}" y="${(y - 6).toFixed(1)}">${Math.round(t)}</text>`;
+        }).join("");
+
+        const svgWidth = n * colWidth;
+        const chartSvg = `
+            <svg class="hourly-chart" width="${svgWidth}" height="${chartHeight}">
+                ${daySepLines}
+                <polyline class="hourly-line" points="${points}"></polyline>
+                ${dotsAndLabels}
+            </svg>
+        `;
+
+        const cols = times.map((t, i) => {
+            const isNewDay = i > 0 && times[i].slice(0, 10) !== times[i - 1].slice(0, 10);
+            const hour = Number(t.slice(11, 13));
+            const classes = ["hourly-col"];
+            if (i === nowIndex) classes.push("is-now");
+            if (isNewDay) classes.push("is-new-day");
+            return `<div class="${classes.join(" ")}">
+                        <div class="hourly-icon">${weatherCodeToIcon(codes[i])}</div>
+                        <div class="hourly-time">${hour}時</div>
+                    </div>`;
+        }).join("");
+
+        hourlyEl.innerHTML = `
+            <div class="hourly-inner">
+                ${chartSvg}
+                <div class="hourly-row">${cols}</div>
+            </div>
+        `;
+    } catch (err) {
+        hourlyEl.innerHTML = `<p style="text-align:center;color:#c33;">時間ごとの天気の取得に失敗しました</p>`;
     }
 }
 
@@ -517,6 +641,7 @@ async function loadIssPass() {
 }
 
 loadForecast();
+loadHourly();
 loadWarnings();
 loadWeatherMap();
 loadIssPass();
