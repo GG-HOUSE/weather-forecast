@@ -249,7 +249,12 @@ const earthMat = new THREE.ShaderMaterial({
       // 街の灯りは暗いピクセルが多いので、明るい部分（都市）だけを強く持ち上げる
       vec3 nightColor = pow(nightRaw, vec3(0.7)) * 2.2 * nightBoost;
 
-      vec3 color = mix(nightColor, dayColor.rgb, mixFactor);
+      // 地面のベースは 昼⇔ほぼ黒 でブレンド(ゴールデンベルトの中では灯りをまだ点けない)
+      vec3 color = mix(vec3(0.0), dayColor.rgb, mixFactor);
+
+      // 都市の灯りは、ゴールデンベルトを抜けて本当の夜になってから点灯させる
+      float nightLightVisibility = 1.0 - smoothstep(-0.6, -0.42, intensity);
+      color += nightColor * nightLightVisibility;
 
       // ゴールデンアワー: 昼夜境界(mixFactorの中心と同じ位置)にオレンジ〜紫の細い帯を重ねる
       const float TERMINATOR_CENTER = -0.25;
