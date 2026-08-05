@@ -124,7 +124,7 @@
     .hourly-col.is-new-day { box-shadow: inset 2px 0 0 #bbb; }
     .hourly-icon { font-size: 1.15rem; line-height: 1.3; }
     .hourly-time { font-size: 0.68rem; color: #666; margin-top: 1px; }
-    .hourly-daylabel { font-size: 0.7rem; color: #3b6fa0; font-weight: bold; margin: 0 0 4px; }
+    .hourly-daylabel { font-size: 0.7rem; color: #3b6fa0; fill: #3b6fa0; font-weight: bold; margin: 0 0 4px; }
     @media (prefers-color-scheme: dark) {
         body { background: #15181d; color: #e6e6e6; }
         h3 { color: #aaa; }
@@ -138,6 +138,7 @@
         .hourly-dot { fill: #6fa8ff; }
         .hourly-temp-label { fill: #bbb; }
         .hourly-daysep { stroke: #444; }
+        .hourly-daylabel { color: #6fa8ff; fill: #6fa8ff; }
         .hourly-col.is-now { background: rgba(111, 168, 255, 0.18); }
         .hourly-col.is-new-day { box-shadow: inset 2px 0 0 #444; }
         .hourly-time { color: #999; }
@@ -147,12 +148,12 @@
 <body>
 <h1>天狗がいる八王子の天気予報</h1>
 <p style="text-align:center; margin: -8px 0 16px;"><a href="earth.html" style="color:#3b6fa0; text-decoration:none; font-size:0.9rem;">🌍 Earth Alive - 今の地球を眺める &rarr;</a></p>
+<h3>1時間ごとの天気（八王子）</h3>
+<div class="card hourly-card" id="hourlyCard"><p style="text-align:center;">読み込み中...</p></div>
+
 <p class="updated" id="updated">読み込み中...</p>
 
 <div id="cards"></div>
-
-<h3>1時間ごとの天気（八王子）</h3>
-<div class="card hourly-card" id="hourlyCard"><p style="text-align:center;">読み込み中...</p></div>
 
 <h3>警報・注意報</h3>
 <div class="warnings" id="warnings"><p class="no-warning">確認中...</p></div>
@@ -330,25 +331,40 @@ async function loadHourly() {
         const n = times.length;
 
         const colWidth = 42;
+        const dateRowHeight = 14;
         const chartHeight = 66;
         const chartPad = 10;
+        const totalHeight = dateRowHeight + chartHeight;
         const minT = Math.min(...temps);
         const maxT = Math.max(...temps);
         const range = Math.max(maxT - minT, 1);
-        const yFor = t => chartHeight - chartPad - ((t - minT) / range) * (chartHeight - chartPad * 2);
+        const yFor = t => dateRowHeight + chartHeight - chartPad - ((t - minT) / range) * (chartHeight - chartPad * 2);
 
         const nowKey = currentJstHourKey();
         const nowIndex = times.indexOf(nowKey);
+
+        // M/D形式の日付文字列を作る（例: "2026-08-05" -> "8/5"）
+        const formatMD = dateStr => {
+            const [, m, d] = dateStr.split("-");
+            return `${Number(m)}/${Number(d)}`;
+        };
 
         const points = temps.map((t, i) => `${i * colWidth + colWidth / 2},${yFor(t).toFixed(1)}`).join(" ");
 
         const daySepX = [];
         for (let i = 1; i < n; i++) {
-            if (times[i].slice(0, 10) !== times[i - 1].slice(0, 10)) daySepX.push(i * colWidth);
+            if (times[i].slice(0, 10) !== times[i - 1].slice(0, 10)) daySepX.push({ x: i * colWidth, date: times[i].slice(0, 10) });
         }
-        const daySepLines = daySepX.map(x =>
-            `<line class="hourly-daysep" x1="${x}" y1="0" x2="${x}" y2="${chartHeight}"></line>`
+        const daySepLines = daySepX.map(({ x }) =>
+            `<line class="hourly-daysep" x1="${x}" y1="${dateRowHeight}" x2="${x}" y2="${totalHeight}"></line>`
         ).join("");
+
+        // グラフ左端に今日の日付、日付が変わる区切り線のところにも新しい日付を表示する
+        const dateLabels = [
+            `<text class="hourly-daylabel" x="4" y="${dateRowHeight - 3}">${formatMD(times[0].slice(0, 10))}</text>`,
+            ...daySepX.map(({ x, date }) =>
+                `<text class="hourly-daylabel" x="${x + 4}" y="${dateRowHeight - 3}">${formatMD(date)}</text>`)
+        ].join("");
 
         const dotsAndLabels = temps.map((t, i) => {
             const x = i * colWidth + colWidth / 2;
@@ -359,10 +375,11 @@ async function loadHourly() {
 
         const svgWidth = n * colWidth;
         const chartSvg = `
-            <svg class="hourly-chart" width="${svgWidth}" height="${chartHeight}">
+            <svg class="hourly-chart" width="${svgWidth}" height="${totalHeight}">
                 ${daySepLines}
                 <polyline class="hourly-line" points="${points}"></polyline>
                 ${dotsAndLabels}
+                ${dateLabels}
             </svg>
         `;
 
