@@ -125,6 +125,38 @@
     .hourly-icon { font-size: 1.15rem; line-height: 1.3; }
     .hourly-time { font-size: 0.68rem; color: #666; margin-top: 1px; }
     .hourly-daylabel { font-size: 0.7rem; color: #3b6fa0; fill: #3b6fa0; font-weight: bold; margin: 0 0 4px; }
+    .candle-card { padding: 16px 12px; }
+    .candle-tf-buttons { display: flex; justify-content: center; gap: 8px; margin-bottom: 12px; }
+    .tf-btn {
+        border: 1px solid #ccc;
+        background: transparent;
+        border-radius: 999px;
+        padding: 5px 14px;
+        font-size: 0.82rem;
+        cursor: pointer;
+        color: #555;
+    }
+    .tf-btn.active { background: #3b6fa0; color: white; border-color: #3b6fa0; }
+    #candleChartWrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .candle-inner { display: inline-block; }
+    .candle-svg { display: block; }
+    .candle-wick { stroke-width: 1.2; }
+    .candle-up .candle-wick, .candle-up .candle-body { stroke: #d32f2f; fill: #d32f2f; }
+    .candle-down .candle-wick, .candle-down .candle-body { stroke: #3b6fa0; fill: #3b6fa0; }
+    .candle-forecast .candle-body { fill-opacity: 0.35; }
+    .candle-forecast .candle-wick { stroke-opacity: 0.5; stroke-dasharray: 2 2; }
+    .candle-now-line { stroke: #999; stroke-width: 1; stroke-dasharray: 3 3; }
+    .candle-row { display: flex; }
+    .candle-col { flex: 0 0 auto; text-align: center; overflow: visible; }
+    .candle-label {
+        font-size: 0.62rem;
+        color: #666;
+        white-space: nowrap;
+        transform: rotate(-40deg);
+        transform-origin: top left;
+        margin-left: 6px;
+        margin-top: 4px;
+    }
     @media (prefers-color-scheme: dark) {
         body { background: #15181d; color: #e6e6e6; }
         h3 { color: #aaa; }
@@ -142,6 +174,12 @@
         .hourly-col.is-now { background: rgba(111, 168, 255, 0.18); }
         .hourly-col.is-new-day { box-shadow: inset 2px 0 0 #444; }
         .hourly-time { color: #999; }
+        .tf-btn { border-color: #444; color: #ccc; }
+        .tf-btn.active { background: #6fa8ff; border-color: #6fa8ff; color: #111; }
+        .candle-up .candle-wick, .candle-up .candle-body { stroke: #ff6b6b; fill: #ff6b6b; }
+        .candle-down .candle-wick, .candle-down .candle-body { stroke: #6fa8ff; fill: #6fa8ff; }
+        .candle-now-line { stroke: #777; }
+        .candle-label { color: #999; }
     }
 </style>
 </head>
@@ -150,6 +188,16 @@
 <p style="text-align:center; margin: -8px 0 16px;"><a href="earth.html" style="color:#3b6fa0; text-decoration:none; font-size:0.9rem;">🌍 Earth Alive - 今の地球を眺める &rarr;</a></p>
 <h3>1時間ごとの天気（八王子）</h3>
 <div class="card hourly-card" id="hourlyCard"><p style="text-align:center;">読み込み中...</p></div>
+
+<h3>気温チャート（八王子）</h3>
+<div class="card candle-card">
+    <div class="candle-tf-buttons">
+        <button class="tf-btn" data-tf="4h" type="button">4時間足</button>
+        <button class="tf-btn" data-tf="1d" type="button">1日足</button>
+        <button class="tf-btn" data-tf="7d" type="button">7日足</button>
+    </div>
+    <div id="candleChartWrap"><p style="text-align:center;">読み込み中...</p></div>
+</div>
 
 <p class="updated" id="updated">読み込み中...</p>
 
@@ -406,6 +454,178 @@ async function loadHourly() {
     }
 }
 
+// ----- 気温チャート（ローソク足） -----
+// Open-Meteoの過去データ(archive-api、無料・APIキー不要)と予報データを1本のグラフに繋げて表示する
+const CANDLE_TF_CONFIG = {
+    "4h": { historyDays: 5, forecastDays: 2 },
+    "1d": { historyDays: 21, forecastDays: 7 },
+    "7d": { historyDays: 84, forecastDays: 7 },
+};
+const candleCache = {};
+let currentCandleTf = "1d";
+
+function jstToday() {
+    return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date());
+}
+
+function shiftDateStr(dateStr, days) {
+    const d = new Date(dateStr + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+}
+
+// その日が属する週の月曜日の日付を返す(7日足のバケット集約キーに使う)
+function mondayOf(dateStr) {
+    const d = new Date(dateStr + "T00:00:00Z");
+    const day = d.getUTCDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    d.setUTCDate(d.getUTCDate() + diff);
+    return d.toISOString().slice(0, 10);
+}
+
+function candleBucketKey(tf, timeStr) {
+    const datePart = timeStr.slice(0, 10);
+    if (tf === "4h") {
+        const hour = Number(timeStr.slice(11, 13));
+        const bucketHour = Math.floor(hour / 4) * 4;
+        return `${datePart}T${String(bucketHour).padStart(2, "0")}:00`;
+    }
+    if (tf === "1d") return datePart;
+    return mondayOf(datePart); // 7d
+}
+
+function candleLabel(tf, key) {
+    if (tf === "4h") {
+        const [datePart, t] = key.split("T");
+        const [, m, d] = datePart.split("-");
+        return `${Number(m)}/${Number(d)} ${t.slice(0, 2)}時`;
+    }
+    const [, m, d] = key.split("-");
+    return tf === "7d" ? `${Number(m)}/${Number(d)}週〜` : `${Number(m)}/${Number(d)}`;
+}
+
+async function fetchCandleData(tf) {
+    if (candleCache[tf]) return candleCache[tf];
+    const cfg = CANDLE_TF_CONFIG[tf];
+    const today = jstToday();
+    const histStart = shiftDateStr(today, -cfg.historyDays);
+    const { lat, lon } = HACHIOJI_CLASS20_COORD;
+
+    const [histRes, fcRes] = await Promise.all([
+        fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${histStart}&end_date=${today}&hourly=temperature_2m&timezone=Asia%2FTokyo`, { cache: "no-store" }),
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m&forecast_days=${cfg.forecastDays}&timezone=Asia%2FTokyo`, { cache: "no-store" }),
+    ]);
+    if (!histRes.ok) throw new Error("HTTP " + histRes.status);
+    if (!fcRes.ok) throw new Error("HTTP " + fcRes.status);
+    const histData = await histRes.json();
+    const fcData = await fcRes.json();
+
+    // 過去分をまず入れ、予報分で(今日の途中の時刻など重なる部分は)上書きする
+    const merged = new Map();
+    histData.hourly.time.forEach((t, i) => {
+        const v = histData.hourly.temperature_2m[i];
+        if (v != null) merged.set(t, v);
+    });
+    fcData.hourly.time.forEach((t, i) => {
+        const v = fcData.hourly.temperature_2m[i];
+        if (v != null) merged.set(t, v);
+    });
+
+    const nowKey = currentJstHourKey();
+    const buckets = new Map();
+    Array.from(merged.keys()).sort().forEach(t => {
+        const key = candleBucketKey(tf, t);
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push({ t, v: merged.get(t) });
+    });
+
+    const candles = Array.from(buckets.entries())
+        .map(([key, points]) => {
+            const values = points.map(p => p.v);
+            return {
+                key,
+                open: points[0].v,
+                close: points[points.length - 1].v,
+                high: Math.max(...values),
+                low: Math.min(...values),
+                isForecast: points[points.length - 1].t > nowKey,
+            };
+        })
+        .sort((a, b) => a.key.localeCompare(b.key));
+
+    candleCache[tf] = candles;
+    return candles;
+}
+
+function renderCandleChart(tf, candles) {
+    const wrap = document.getElementById("candleChartWrap");
+    if (!candles.length) {
+        wrap.innerHTML = `<p style="text-align:center;">データがありません</p>`;
+        return;
+    }
+
+    const colWidth = 26;
+    const bodyWidth = 14;
+    const chartHeight = 160;
+    const padTop = 20, padBottom = 14;
+
+    const allHigh = Math.max(...candles.map(c => c.high));
+    const allLow = Math.min(...candles.map(c => c.low));
+    const range = Math.max(allHigh - allLow, 1);
+    const yFor = v => chartHeight - padBottom - ((v - allLow) / range) * (chartHeight - padTop - padBottom);
+
+    const svgWidth = candles.length * colWidth;
+    const labelEvery = tf === "7d" ? 1 : (tf === "4h" ? 6 : 5);
+
+    const bars = candles.map((c, i) => {
+        const x = i * colWidth + colWidth / 2;
+        const up = c.close >= c.open;
+        const yHigh = yFor(c.high), yLow = yFor(c.low);
+        const yOpen = yFor(c.open), yClose = yFor(c.close);
+        const bodyTop = Math.min(yOpen, yClose);
+        const bodyHeight = Math.max(Math.abs(yClose - yOpen), 1.5);
+        return `<g class="${up ? "candle-up" : "candle-down"} ${c.isForecast ? "candle-forecast" : ""}">
+                    <line class="candle-wick" x1="${x}" y1="${yHigh.toFixed(1)}" x2="${x}" y2="${yLow.toFixed(1)}"></line>
+                    <rect class="candle-body" x="${(x - bodyWidth / 2).toFixed(1)}" y="${bodyTop.toFixed(1)}" width="${bodyWidth}" height="${bodyHeight.toFixed(1)}"></rect>
+                </g>`;
+    }).join("");
+
+    const firstForecastIdx = candles.findIndex(c => c.isForecast);
+    const nowLine = firstForecastIdx > 0
+        ? `<line class="candle-now-line" x1="${firstForecastIdx * colWidth}" y1="0" x2="${firstForecastIdx * colWidth}" y2="${chartHeight}"></line>`
+        : "";
+
+    const labels = candles.map((c, i) => {
+        const show = i % labelEvery === 0;
+        return `<div class="candle-col" style="width:${colWidth}px">${show ? `<div class="candle-label">${candleLabel(tf, c.key)}</div>` : ""}</div>`;
+    }).join("");
+
+    wrap.innerHTML = `
+        <div class="candle-inner">
+            <svg class="candle-svg" width="${svgWidth}" height="${chartHeight}">${nowLine}${bars}</svg>
+            <div class="candle-row">${labels}</div>
+        </div>
+    `;
+    wrap.scrollLeft = wrap.scrollWidth;
+}
+
+async function selectCandleTimeframe(tf) {
+    currentCandleTf = tf;
+    document.querySelectorAll(".tf-btn").forEach(b => b.classList.toggle("active", b.dataset.tf === tf));
+    const wrap = document.getElementById("candleChartWrap");
+    wrap.innerHTML = `<p style="text-align:center;">読み込み中...</p>`;
+    try {
+        const candles = await fetchCandleData(tf);
+        renderCandleChart(tf, candles);
+    } catch (err) {
+        wrap.innerHTML = `<p style="text-align:center;color:#c33;">気温チャートの取得に失敗しました</p>`;
+    }
+}
+
+document.querySelectorAll(".tf-btn").forEach(b => {
+    b.addEventListener("click", () => selectCandleTimeframe(b.dataset.tf));
+});
+
 async function loadWarnings() {
     const warningsEl = document.getElementById("warnings");
     try {
@@ -659,6 +879,7 @@ async function loadIssPass() {
 
 loadForecast();
 loadHourly();
+selectCandleTimeframe(currentCandleTf);
 loadWarnings();
 loadWeatherMap();
 loadIssPass();
